@@ -1,0 +1,130 @@
+---
+title: "Palmer Penguins: Species and Island Distribution"
+author: "Bou Jolais B. Grandeza"
+date: "2026-11-15"
+format:
+  dashboard:
+    orientation: rows
+    nav-buttons: []
+echo: false
+---
+
+```{=html}
+<style>
+  /* keep value box text inside the card */
+  .valuebox .value-box-title { white-space: normal; font-size: 0.95rem; }
+  .valuebox .value-box-value { white-space: normal; overflow-wrap: anywhere; font-size: clamp(1.2rem, 2.4vw, 2rem); }
+</style>
+```
+
+```{r}
+#| include: false
+library(palmerpenguins)
+library(ggplot2)
+library(dplyr)
+
+# Summary statistics
+total_penguins <- nrow(penguins)
+
+species_counts <- penguins |> count(species, sort = TRUE)
+island_counts  <- penguins |> count(island, sort = TRUE)
+
+top_species   <- as.character(species_counts$species[1])
+top_species_n <- species_counts$n[1]
+top_island    <- as.character(island_counts$island[1])
+top_island_n  <- island_counts$n[1]
+
+# One consistent color per species across both charts
+species_colors <- c(
+  Adelie    = "#1f77b4",
+  Chinstrap = "#ff7f0e",
+  Gentoo    = "#2ca02c"
+)
+
+base_theme <- theme_minimal(base_size = 13) +
+  theme(
+    plot.title = element_text(face = "bold", size = 14),
+    legend.position = "right"
+  )
+```
+
+# Dashboard
+
+## Row {height=22%}
+
+```{r}
+#| content: valuebox
+#| title: "Total Penguins Observed"
+list(
+  icon = "bar-chart-fill",
+  color = "primary",
+  value = format(total_penguins, big.mark = ",")
+)
+```
+
+```{r}
+#| content: valuebox
+#| title: "Most Observed Species"
+list(
+  icon = "trophy-fill",
+  color = "success",
+  value = top_species
+)
+```
+
+```{r}
+#| content: valuebox
+#| title: "Island with Most Penguins"
+list(
+  icon = "geo-alt-fill",
+  color = "info",
+  value = top_island
+)
+```
+
+## Row {height=78%}
+
+::: {.card title="Species Distribution"}
+
+```{r}
+ggplot(penguins, aes(x = species, fill = species)) +
+  geom_bar() +
+  geom_text(
+    stat = "count",
+    aes(label = after_stat(count)),
+    vjust = -0.4
+  ) +
+  scale_fill_manual(values = species_colors) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.1))) +
+  labs(
+    title = "Number of Penguins Observed by Species",
+    x = "Species",
+    y = "Number of Observations",
+    fill = "Species"
+  ) +
+  base_theme
+```
+
+**Interpretation:** Adelie is the most observed species with 152 penguins, followed by Gentoo with 124 and Chinstrap with 68. Adelie accounts for about 44% of all 344 observations, so the dataset is weighted toward this species.
+
+:::
+
+::: {.card title="Island Distribution"}
+
+```{r}
+ggplot(penguins, aes(x = island, fill = species)) +
+  geom_bar(position = position_dodge(preserve = "single")) +
+  scale_fill_manual(values = species_colors) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.1))) +
+  labs(
+    title = "Number of Penguins by Island and Species",
+    x = "Island",
+    y = "Number of Observations",
+    fill = "Species"
+  ) +
+  base_theme
+```
+
+**Interpretation:** Biscoe Island has the most penguins (168), made up of 124 Gentoo and 44 Adelie. Dream Island follows with 124 (68 Chinstrap and 56 Adelie), and Torgersen has the fewest with 52, all Adelie. Adelie is the only species found on all three islands.
+
+:::
