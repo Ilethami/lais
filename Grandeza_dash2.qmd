@@ -1,0 +1,353 @@
+---
+title: "Palmer Penguins: Species and Island Distribution"
+author: "Bou Jolais B. Grandeza"
+date: "2026-11-15"
+format:
+  dashboard:
+    orientation: rows
+    scrolling: true
+    nav-buttons: []
+echo: false
+---
+
+```{=html}
+<style>
+  /* keep value box text inside the card */
+  .valuebox .value-box-title { white-space: normal; font-size: 0.95rem; }
+  .valuebox .value-box-value { white-space: normal; overflow-wrap: anywhere; font-size: clamp(1.2rem, 2.4vw, 2rem); }
+</style>
+```
+
+```{r}
+#| include: false
+library(palmerpenguins)
+library(ggplot2)
+library(dplyr)
+
+# ---------- helpers ----------
+fmt_p <- function(p) ifelse(p < 0.001, "< 0.001", sprintf("%.3f", p))
+p_txt <- function(p) ifelse(p < 0.001, "p < 0.001", paste0("p = ", sprintf("%.3f", p)))
+
+# ---------- data ----------
+# Complete cases for the numeric variables used in the tests
+penguins_num <- penguins |>
+  filter(!is.na(body_mass_g), !is.na(flipper_length_mm))
+
+# ---------- summary statistics (value boxes) ----------
+total_penguins <- nrow(penguins)
+
+species_counts <- penguins |> count(species, sort = TRUE)
+island_counts  <- penguins |> count(island, sort = TRUE)
+
+top_species   <- as.character(species_counts$species[1])
+top_species_n <- species_counts$n[1]
+top_island    <- as.character(island_counts$island[1])
+top_island_n  <- island_counts$n[1]
+mean_mass     <- mean(penguins$body_mass_g, na.rm = TRUE)
+
+# ---------- descriptive statistics ----------
+desc_tbl <- penguins |>
+  group_by(species) |>
+  summarise(
+    n            = n(),
+    mean_mass    = mean(body_mass_g, na.rm = TRUE),
+    sd_mass      = sd(body_mass_g, na.rm = TRUE),
+    median_mass  = median(body_mass_g, na.rm = TRUE),
+    mean_flipper = mean(flipper_length_mm, na.rm = TRUE),
+    mean_bill    = mean(bill_length_mm, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+heaviest <- as.character(desc_tbl$species[which.max(desc_tbl$mean_mass)])
+lightest <- as.character(desc_tbl$species[which.min(desc_tbl$mean_mass)])
+
+# Mean body mass with 95% confidence intervals
+ci_tbl <- penguins_num |>
+  group_by(species) |>
+  summarise(m = mean(body_mass_g), s = sd(body_mass_g), n = n(), .groups = "drop") |>
+  mutate(
+    se = s / sqrt(n),
+    lo = m - qt(0.975, n - 1) * se,
+    hi = m + qt(0.975, n - 1) * se
+  )
+
+# ---------- inferential statistics ----------
+# 1. Chi-square goodness of fit: are species counts equal?
+gof <- chisq.test(table(penguins$species))
+
+# 2. Chi-square test of independence: species x island
+tab <- table(penguins$species, penguins$island)
+chi <- chisq.test(tab)
+cramers_v <- sqrt(unname(chi$statistic) / (sum(tab) * (min(dim(tab)) - 1)))
+
+# 3. One-way ANOVA + Tukey HSD: body mass by species
+aov_fit <- aov(body_mass_g ~ species, data = penguins_num)
+aov_sum <- summary(aov_fit)[[1]]
+F_val   <- aov_sum$`F value`[1]
+p_aov   <- aov_sum$`Pr(>F)`[1]
+eta2    <- aov_sum$`Sum Sq`[1] / sum(aov_sum$`Sum Sq`)
+tk      <- as.data.frame(TukeyHSD(aov_fit)$species)
+
+# 4. Pearson correlation: flipper length vs body mass
+cor_res <- cor.test(~ flipper_length_mm + body_mass_g, data = penguins_num)
+r_val   <- unname(cor_res$estimate)
+
+# ---------- tables ----------
+tests_tbl <- data.frame(
+  Test = c(
+    "Chi-square goodness of fit (equal species counts)",
+    "Chi-square test of independence (species x island)",
+    "One-way ANOVA (body mass by species)",
+    "Pearson correlation (flipper length vs body mass)"
+  ),
+  Statistic = c(
+    sprintf("X2 = %.1f", gof$statistic),
+    sprintf("X2 = %.1f", chi$statistic),
+    sprintf("F = %.1f", F_val),
+    sprintf("r = %.3f", r_val)
+  ),
+  df = c(
+    as.character(gof$parameter),
+    as.character(chi$parameter),
+    paste0(aov_sum$Df[1], ", ", aov_sum$Df[2]),
+    as.character(cor_res$parameter)
+  ),
+  `p-value` = fmt_p(c(gof$p.value, chi$p.value, p_aov, cor_res$p.value)),
+  `Effect size` = c(
+    "-",
+    sprintf("Cramer's V = %.2f", cramers_v),
+    sprintf("eta-squared = %.2f", eta2),
+    sprintf("R-squared = %.2f", r_val^2)
+  ),
+  check.names = FALSE
+)
+
+tukey_tbl <- data.frame(
+  Comparison = rownames(tk),
+  `Difference (g)` = round(tk$diff, 1),
+  `Lower 95%` = round(tk$lwr, 1),
+  `Upper 95%` = round(tk$upr, 1),
+  `Adjusted p` = fmt_p(tk$`p adj`),
+  check.names = FALSE
+)
+
+# ---------- styling ----------
+# One consistent color per species across all charts
+species_colors <- c(
+  Adelie    = "#1f77b4",
+  Chinstrap = "#ff7f0e",
+  Gentoo    = "#2ca02c"
+)
+
+base_theme <- theme_minimal(base_size = 13) +
+  theme(
+    plot.title = element_text(face = "bold", size = 14),
+    legend.position = "right"
+  )
+```
+
+# Dashboard
+
+## Row
+
+```{r}
+#| content: valuebox
+#| title: "Total Penguins Observed"
+list(
+  icon = "bar-chart-fill",
+  color = "primary",
+  value = format(total_penguins, big.mark = ",")
+)
+```
+
+```{r}
+#| content: valuebox
+#| title: "Most Observed Species"
+list(
+  icon = "trophy-fill",
+  color = "success",
+  value = top_species
+)
+```
+
+```{r}
+#| content: valuebox
+#| title: "Island with Most Penguins"
+list(
+  icon = "geo-alt-fill",
+  color = "info",
+  value = top_island
+)
+```
+
+```{r}
+#| content: valuebox
+#| title: "Average Body Mass"
+list(
+  icon = "speedometer2",
+  color = "warning",
+  value = paste0(format(round(mean_mass), big.mark = ","), " g")
+)
+```
+
+## Row
+
+::: {.card title="Species Distribution"}
+
+```{r}
+#| fig-width: 7
+#| fig-height: 4.2
+ggplot(penguins, aes(x = species, fill = species)) +
+  geom_bar() +
+  geom_text(
+    stat = "count",
+    aes(label = after_stat(count)),
+    vjust = -0.4
+  ) +
+  scale_fill_manual(values = species_colors) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.1))) +
+  labs(
+    title = "Number of Penguins Observed by Species",
+    x = "Species",
+    y = "Number of Observations",
+    fill = "Species"
+  ) +
+  base_theme
+```
+
+**Interpretation:** Adelie is the most observed species with 152 penguins, followed by Gentoo with 124 and Chinstrap with 68. Adelie accounts for about 44% of all 344 observations, so the dataset is weighted toward this species.
+
+:::
+
+::: {.card title="Island Distribution"}
+
+```{r}
+#| fig-width: 7
+#| fig-height: 4.2
+ggplot(penguins, aes(x = island, fill = species)) +
+  geom_bar(position = position_dodge(preserve = "single")) +
+  scale_fill_manual(values = species_colors) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.1))) +
+  labs(
+    title = "Number of Penguins by Island and Species",
+    x = "Island",
+    y = "Number of Observations",
+    fill = "Species"
+  ) +
+  base_theme
+```
+
+**Interpretation:** Biscoe Island has the most penguins (168), made up of 124 Gentoo and 44 Adelie. Dream Island follows with 124 (68 Chinstrap and 56 Adelie), and Torgersen has the fewest with 52, all Adelie. Adelie is the only species found on all three islands.
+
+:::
+
+## Row
+
+::: {.card title="Descriptive Statistics by Species"}
+
+```{r}
+knitr::kable(
+  desc_tbl,
+  digits = 1,
+  col.names = c("Species", "n", "Mean mass (g)", "SD mass (g)",
+                "Median mass (g)", "Mean flipper (mm)", "Mean bill length (mm)")
+)
+```
+
+**Interpretation:** `r heaviest` is the heaviest species on average (`r format(round(max(desc_tbl$mean_mass)), big.mark = ",")` g) and `r lightest` the lightest (`r format(round(min(desc_tbl$mean_mass)), big.mark = ",")` g). Standard deviations of about `r round(min(desc_tbl$sd_mass))` to `r round(max(desc_tbl$sd_mass))` g show considerable spread within each species, and means and medians are close, which suggests fairly symmetric distributions.
+
+:::
+
+::: {.card title="Body Mass Distribution by Species"}
+
+```{r}
+#| fig-width: 7
+#| fig-height: 4.2
+ggplot(penguins, aes(x = species, y = body_mass_g, fill = species)) +
+  geom_boxplot(alpha = 0.6, outlier.shape = NA) +
+  geom_jitter(
+    aes(color = species),
+    position = position_jitter(width = 0.15, height = 0, seed = 1),
+    alpha = 0.5, size = 1.2, show.legend = FALSE
+  ) +
+  scale_fill_manual(values = species_colors) +
+  scale_color_manual(values = species_colors) +
+  labs(
+    title = "Body Mass by Species",
+    x = "Species",
+    y = "Body Mass (g)",
+    fill = "Species"
+  ) +
+  base_theme
+```
+
+**Interpretation:** Gentoo penguins have a clearly higher median body mass than the other two species, with little overlap in their interquartile ranges. Adelie and Chinstrap distributions overlap heavily. Each point is one penguin, so the plot also shows how the observations are spread.
+
+:::
+
+## Row
+
+::: {.card title="Mean Body Mass with 95% Confidence Intervals"}
+
+```{r}
+#| fig-width: 7
+#| fig-height: 4.2
+ggplot(ci_tbl, aes(x = species, y = m, color = species)) +
+  geom_pointrange(aes(ymin = lo, ymax = hi), linewidth = 1, size = 0.8) +
+  scale_color_manual(values = species_colors) +
+  labs(
+    title = "Mean Body Mass (95% CI) by Species",
+    x = "Species",
+    y = "Mean Body Mass (g)",
+    color = "Species"
+  ) +
+  base_theme
+```
+
+**Interpretation:** The confidence interval for Gentoo does not overlap with those of Adelie or Chinstrap, indicating a real difference in mean body mass. The Adelie and Chinstrap intervals overlap, so the data do not show a clear difference between those two species.
+
+:::
+
+::: {.card title="Flipper Length vs. Body Mass"}
+
+```{r}
+#| fig-width: 7
+#| fig-height: 4.2
+ggplot(penguins_num, aes(x = flipper_length_mm, y = body_mass_g)) +
+  geom_point(aes(color = species), alpha = 0.7, size = 2) +
+  geom_smooth(method = "lm", formula = y ~ x, color = "black", linewidth = 0.8) +
+  scale_color_manual(values = species_colors) +
+  labs(
+    title = "Flipper Length and Body Mass",
+    x = "Flipper Length (mm)",
+    y = "Body Mass (g)",
+    color = "Species"
+  ) +
+  base_theme
+```
+
+**Interpretation:** Flipper length and body mass have a strong positive correlation (r = `r sprintf("%.2f", r_val)`, `r p_txt(cor_res$p.value)`), and flipper length explains about `r round(100 * r_val^2)`% of the variation in body mass. The species form visible clusters, with Gentoo at the upper right.
+
+:::
+
+## Row
+
+::: {.card title="Inferential Tests Summary"}
+
+```{r}
+knitr::kable(tests_tbl, align = "lcccl")
+```
+
+**Interpretation:** Species counts are significantly unequal (`r p_txt(gof$p.value)`), and species is strongly associated with island (`r p_txt(chi$p.value)`, Cramer's V = `r sprintf("%.2f", cramers_v)`). Body mass differs significantly across species (F = `r sprintf("%.1f", F_val)`, `r p_txt(p_aov)`), with species explaining about `r round(100 * eta2)`% of the variance in body mass.
+
+:::
+
+::: {.card title="Tukey HSD Post-hoc Comparisons (Body Mass)"}
+
+```{r}
+knitr::kable(tukey_tbl, align = "lcccc")
+```
+
+**Interpretation:** Gentoo penguins are significantly heavier than Adelie (by about `r round(tk["Gentoo-Adelie", "diff"])` g) and Chinstrap (by about `r round(tk["Gentoo-Chinstrap", "diff"])` g) penguins. The difference between Adelie and Chinstrap is small and not statistically significant.
+
+:::
